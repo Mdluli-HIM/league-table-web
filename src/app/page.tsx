@@ -401,18 +401,22 @@ export default function HomePage() {
                 <div className="mt-6 flex flex-wrap gap-3">
                   <Link
                     href="/fixtures"
-                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-xs font-black text-[#087f8c]"
+                    className="inline-flex min-w-[155px] items-center justify-center gap-2 rounded-full bg-white px-5 py-3 shadow-sm transition hover:bg-white/90"
                   >
-                    View fixtures
-                    <ArrowUpRight size={15} />
+                    <span className="text-xs font-black text-[#0f766e]">
+                      View fixtures
+                    </span>
+                    <ArrowUpRight size={15} className="text-[#0f766e]" />
                   </Link>
 
                   <Link
                     href="/table"
-                    className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-3 text-xs font-black text-white"
+                    className="inline-flex min-w-[155px] items-center justify-center gap-2 rounded-full border border-white/25 bg-white/15 px-5 py-3 transition hover:bg-white/25"
                   >
-                    League table
-                    <ArrowUpRight size={15} />
+                    <span className="text-xs font-black text-white">
+                      League table
+                    </span>
+                    <ArrowUpRight size={15} className="text-white" />
                   </Link>
                 </div>
               </div>
