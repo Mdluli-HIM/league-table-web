@@ -1,20 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowUpRight,
   BarChart3,
   CalendarDays,
-  ChevronRight,
   CircleDot,
-  Home,
+  Clock3,
   ListOrdered,
   Loader2,
+  MapPin,
   Shield,
   Trophy,
   UsersRound,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ViewerShell } from "@/components/layout/viewer-shell";
 
 type ApiResponse<T> = {
   success: boolean;
@@ -37,22 +40,16 @@ type Competition = {
   status?: string;
 };
 
-type Season = {
-  id?: string;
-  name?: string;
-  slug?: string;
-  status?: string;
-  isCurrent?: boolean;
-};
-
 type Match = {
   id?: string;
   scheduledAt?: string;
+  status?: string;
   homeScore?: number | null;
   awayScore?: number | null;
   competition?: Competition | null;
   homeClub?: Club | null;
   awayClub?: Club | null;
+  winnerClub?: Club | null;
   venue?: {
     id?: string;
     name?: string;
@@ -62,49 +59,8 @@ type Match = {
 
 type StandingRow = Record<string, unknown>;
 
-const navItems = [
-  { label: "Home", href: "/", icon: Home },
-  { label: "Fixtures", href: "/fixtures", icon: CalendarDays },
-  { label: "Results", href: "/results", icon: CircleDot },
-  { label: "Table", href: "/table", icon: ListOrdered },
-  { label: "Clubs", href: "/clubs", icon: UsersRound },
-];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function numberFrom(...values: unknown[]) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-
-  return 0;
-}
-
-function stringFrom(...values: unknown[]) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value;
-  }
-
-  return "";
-}
-
-function firstArray<T>(source: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = source[key];
-
-    if (Array.isArray(value)) {
-      return value as T[];
-    }
-  }
-
-  return [];
 }
 
 function unwrapArray<T>(value: unknown, keys: string[]) {
@@ -127,24 +83,36 @@ function unwrapArray<T>(value: unknown, keys: string[]) {
   return [];
 }
 
-function getClubName(club?: Club | null) {
-  return club?.shortName || club?.name || "TBC";
+function stringFrom(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return "";
 }
 
-function formatMatchDate(value?: string) {
-  if (!value) return "Date TBC";
+function numberFrom(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
 
-  const date = new Date(value);
+    if (typeof value === "string") {
+      const parsed = Number(value);
 
-  if (Number.isNaN(date.getTime())) return "Date TBC";
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
 
-  return new Intl.DateTimeFormat("en-ZA", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return 0;
+}
+
+function getClubName(club?: Club | null) {
+  return club?.shortName || club?.name || "TBC";
 }
 
 function getStandingClubName(row: StandingRow) {
@@ -164,38 +132,74 @@ function getStandingClubName(row: StandingRow) {
   );
 }
 
-function getStandingPlayed(row: StandingRow) {
+function getPlayed(row: StandingRow) {
   return numberFrom(row.played, row.matchesPlayed, row.mp, row.p);
 }
 
-function getStandingWins(row: StandingRow) {
-  return numberFrom(row.won, row.wins, row.w);
+function getGoalDifference(row: StandingRow) {
+  const value = numberFrom(row.goalDifference, row.gd);
+  return value > 0 ? `+${value}` : `${value}`;
 }
 
-function getStandingLosses(row: StandingRow) {
-  return numberFrom(row.lost, row.losses, row.l);
+function getPoints(row: StandingRow) {
+  return numberFrom(row.points, row.pts);
 }
 
-function getStandingGoalDifference(row: StandingRow) {
-  const value = row.goalDifference ?? row.gd;
+function formatDate(value?: string) {
+  if (!value) return "Date TBC";
 
-  if (typeof value === "number") {
-    return value > 0 ? `+${value}` : `${value}`;
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Date TBC";
   }
 
-  return stringFrom(value) || "0";
+  return new Intl.DateTimeFormat("en-ZA", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  }).format(date);
 }
 
-function getStandingPoints(row: StandingRow) {
-  return numberFrom(row.points, row.pts);
+function formatTime(value?: string) {
+  if (!value) return "Time TBC";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Time TBC";
+  }
+
+  return new Intl.DateTimeFormat("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getScore(match?: Match) {
+  if (!match || match.status !== "COMPLETED") {
+    return "VS";
+  }
+
+  return `${numberFrom(match.homeScore)} - ${numberFrom(match.awayScore)}`;
+}
+
+function getTotalGoals(match: Match) {
+  return numberFrom(match.homeScore) + numberFrom(match.awayScore);
 }
 
 async function fetchPublicHome() {
   const response = await api.get<ApiResponse<unknown>>("/public/home");
-  return isRecord(response.data.data) ? response.data.data : {};
+  const data = response.data.data;
+
+  if (!isRecord(data)) {
+    return {};
+  }
+
+  return data;
 }
 
-async function fetchPublicCompetitions() {
+async function fetchCompetitions() {
   const response = await api.get<ApiResponse<unknown>>("/public/competitions");
 
   return unwrapArray<Competition>(response.data.data, [
@@ -227,469 +231,445 @@ export default function HomePage() {
   });
 
   const competitionsQuery = useQuery({
-    queryKey: ["public-competitions"],
-    queryFn: fetchPublicCompetitions,
+    queryKey: ["public-competitions-home"],
+    queryFn: fetchCompetitions,
   });
 
-  const homeData = homeQuery.data ?? {};
-  const statsData = isRecord(homeData.stats) ? homeData.stats : {};
+  const homeData = useMemo(() => homeQuery.data ?? {}, [homeQuery.data]);
 
-  const homeCompetitions = firstArray<Competition>(homeData, [
-    "activeCompetitions",
-    "competitions",
-  ]);
+  const homeRoot = useMemo(() => {
+    return isRecord(homeData.home) ? homeData.home : homeData;
+  }, [homeData]);
 
-  const competitions =
-    homeCompetitions.length > 0
-      ? homeCompetitions
-      : (competitionsQuery.data ?? []);
+  const competitions = useMemo(
+    () => competitionsQuery.data ?? [],
+    [competitionsQuery.data],
+  );
 
-  const leagueCompetition =
-    competitions.find((competition) => competition.type === "LEAGUE") ??
-    competitions[0];
+  const leagueCompetition = useMemo(() => {
+    return (
+      competitions.find((competition) => competition.type === "LEAGUE") ??
+      competitions[0]
+    );
+  }, [competitions]);
 
   const tableQuery = useQuery({
-    queryKey: ["public-league-table", leagueCompetition?.id],
+    queryKey: ["public-home-table", leagueCompetition?.id],
     queryFn: () => fetchLeagueTable(leagueCompetition?.id ?? ""),
     enabled: Boolean(leagueCompetition?.id),
   });
 
-  const currentSeason = isRecord(homeData.currentSeason)
-    ? (homeData.currentSeason as Season)
-    : undefined;
+  const standings = useMemo(() => tableQuery.data ?? [], [tableQuery.data]);
 
-  const upcomingFixtures = firstArray<Match>(homeData, [
-    "upcomingFixtures",
-    "fixtures",
-    "nextFixtures",
-  ]);
+  const fixtures = useMemo(() => {
+    return unwrapArray<Match>(homeRoot, [
+      "fixtures",
+      "upcomingFixtures",
+      "nextFixtures",
+      "matches",
+    ]).filter((match) => match.status !== "COMPLETED");
+  }, [homeRoot]);
 
-  const recentResults = firstArray<Match>(homeData, [
-    "recentResults",
-    "latestResults",
-    "results",
-  ]);
+  const results = useMemo(() => {
+    return unwrapArray<Match>(homeRoot, [
+      "results",
+      "recentResults",
+      "latestResults",
+      "completedMatches",
+    ]).filter((match) => match.status === "COMPLETED");
+  }, [homeRoot]);
 
-  const clubs = firstArray<Club>(homeData, ["clubs", "activeClubs"]);
+  const stats = useMemo(() => {
+    if (isRecord(homeRoot.stats)) {
+      return homeRoot.stats;
+    }
 
-  const standings = tableQuery.data ?? [];
-  const nextFixture = upcomingFixtures[0];
-  const latestResult = recentResults[0];
+    if (isRecord(homeRoot.summary)) {
+      return homeRoot.summary;
+    }
 
-  const totalGoalsFromResults = recentResults.reduce((total, match) => {
-    return total + numberFrom(match.homeScore) + numberFrom(match.awayScore);
-  }, 0);
+    return {};
+  }, [homeRoot]);
+
+  const nextFixture = fixtures[0];
+  const latestResult = results[0];
 
   const totalClubs = numberFrom(
-    statsData.totalClubs,
-    statsData.clubs,
-    homeData.totalClubs,
-    clubs.length,
+    stats.totalClubs,
+    stats.clubs,
+    stats.clubCount,
+    standings.length,
   );
 
-  const completedMatches = numberFrom(
-    statsData.completedMatches,
-    statsData.playedMatches,
-    homeData.completedMatches,
-    recentResults.length,
+  const totalCompetitions = numberFrom(
+    stats.totalCompetitions,
+    stats.competitions,
+    stats.competitionCount,
+    competitions.length,
+  );
+
+  const totalMatches = numberFrom(
+    stats.totalMatches,
+    stats.matches,
+    stats.matchCount,
+    fixtures.length + results.length,
   );
 
   const totalGoals = numberFrom(
-    statsData.totalGoals,
-    statsData.goals,
-    homeData.totalGoals,
-    totalGoalsFromResults,
+    stats.totalGoals,
+    stats.goals,
+    results.reduce((total, match) => total + getTotalGoals(match), 0),
   );
 
-  const scheduledFixtures = numberFrom(
-    statsData.scheduledFixtures,
-    statsData.upcomingFixtures,
-    homeData.scheduledFixtures,
-    upcomingFixtures.length,
-  );
-
-  const isLoading = homeQuery.isLoading || competitionsQuery.isLoading;
-
-  const topStanding = standings[0];
-  const topTeamPoints = topStanding ? getStandingPoints(topStanding) : 0;
+  const loading =
+    homeQuery.isLoading || competitionsQuery.isLoading || tableQuery.isLoading;
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#c7ddd9] text-[#10201c]">
-      <div className="pointer-events-none fixed inset-0">
-        <div className="absolute -left-24 -top-32 h-[420px] w-[420px] rounded-full bg-[#0d8ee8]/70 blur-3xl" />
-        <div className="absolute right-[-140px] top-[-80px] h-[420px] w-[420px] rounded-full bg-[#d9ddff]/80 blur-3xl" />
-        <div className="absolute bottom-[-180px] left-1/3 h-[420px] w-[420px] rounded-full bg-white/50 blur-3xl" />
-      </div>
-
-      <section className="relative flex min-h-screen w-full items-start px-2 py-2 pb-28 sm:px-3 sm:py-3 lg:px-3 lg:py-3 lg:pb-3">
-        <div className="grid min-h-[calc(100vh-1.5rem)] w-full gap-3 rounded-[1.75rem] border border-white/70 bg-white/35 p-3 shadow-2xl shadow-[#527a7a]/20 backdrop-blur-2xl sm:rounded-[2rem] sm:p-3 lg:grid-cols-[230px_minmax(0,1fr)] lg:p-4">
-          <aside className="hidden rounded-[1.8rem] border border-white/40 bg-white/25 p-5 lg:flex lg:flex-col">
-            <Link href="/" className="text-xl font-black tracking-[-0.05em]">
+    <ViewerShell
+      activeKey="home"
+      sidebarLabel="Viewer Mode"
+      sidebarValue="Public match centre"
+    >
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="flex items-center gap-2 lg:hidden">
+            <Link href="/" className="text-base font-black tracking-[-0.05em]">
               League<span className="text-[#087f8c]">Centre</span>
             </Link>
+            <span className="rounded-full bg-white/60 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#087f8c]">
+              Home
+            </span>
+          </div>
 
-            <nav className="mt-10 space-y-3">
-              {navItems.map((item, index) => {
-                const Icon = item.icon;
-                const active = index === 0;
+          <p className="mt-3 text-sm font-black text-[#087f8c] lg:mt-0">
+            Public football dashboard
+          </p>
 
-                return (
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    className={`flex h-12 items-center gap-3 rounded-2xl px-4 text-sm font-bold transition ${
-                      active
-                        ? "bg-gradient-to-r from-[#0891b2] to-[#0f766e] text-white shadow-lg shadow-cyan-900/10"
-                        : "text-[#08736f] hover:bg-white/40"
-                    }`}
-                  >
-                    <Icon size={18} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
+          <h1 className="mt-1 text-4xl font-black tracking-[-0.07em] text-[#10201c] sm:text-5xl lg:text-6xl">
+            Match Centre
+          </h1>
+        </div>
 
-            <div className="mt-auto border-t border-[#0f766e]/10 pt-6">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#08736f]/70">
-                Current Season
-              </p>
-              <p className="mt-2 text-sm font-bold">
-                {currentSeason?.name ?? "No current season"}
-              </p>
-            </div>
-          </aside>
+        <div className="flex flex-wrap gap-2">
+          <div className="inline-flex w-fit items-center gap-2 rounded-full bg-white/80 px-4 py-3 text-xs font-black text-[#087f8c] shadow-sm">
+            <Trophy size={14} />
+            {totalCompetitions} competitions
+          </div>
 
-          <div className="min-w-0 rounded-[1.6rem] bg-white/25 p-3 backdrop-blur-xl sm:p-4 lg:p-5">
-            <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-2 lg:hidden">
-                  <Link
-                    href="/"
-                    className="text-base font-black tracking-[-0.05em]"
-                  >
-                    League<span className="text-[#087f8c]">Centre</span>
-                  </Link>
-                  <span className="rounded-full bg-white/60 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#087f8c]">
-                    Viewer
-                  </span>
+          <div className="inline-flex w-fit items-center gap-2 rounded-full bg-white/80 px-4 py-3 text-xs font-black text-[#087f8c] shadow-sm">
+            <UsersRound size={14} />
+            {totalClubs} clubs
+          </div>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="mt-8 flex min-h-[420px] items-center justify-center rounded-[1.7rem] border border-white/60 bg-white/60">
+          <div className="flex items-center gap-2 text-sm font-black text-[#087f8c]">
+            <Loader2 className="animate-spin" size={18} />
+            Loading match centre
+          </div>
+        </div>
+      ) : (
+        <>
+          <section className="mt-6 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <article className="flex min-h-[360px] flex-col rounded-[1.7rem] border border-white/60 bg-gradient-to-br from-[#0891b2] to-[#0f766e] p-5 text-white shadow-xl shadow-[#0f766e]/20">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
+                  <Trophy size={28} />
                 </div>
 
-                <p className="mt-3 text-sm font-black text-[#087f8c] lg:mt-0">
-                  {currentSeason?.name
-                    ? `${currentSeason.name} overview`
-                    : "Live league overview"}
-                </p>
-
-                <h1 className="mt-1 text-4xl font-black tracking-[-0.07em] text-[#10201c] sm:text-5xl lg:text-6xl">
-                  Match Centre
-                </h1>
+                <span className="rounded-full bg-white/15 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-white/80">
+                  Live overview
+                </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                {isLoading ? (
-                  <div className="inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-3 text-xs font-black text-[#087f8c] shadow-sm">
-                    <Loader2 className="animate-spin" size={14} />
-                    Loading data
+              <div className="mt-auto">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-white/65">
+                  LeagueCentre
+                </p>
+
+                <h2 className="mt-3 max-w-2xl text-5xl font-black leading-[0.9] tracking-[-0.08em] sm:text-6xl xl:text-7xl">
+                  Follow every fixture, result and table update.
+                </h2>
+
+                <p className="mt-5 max-w-xl text-sm font-semibold leading-6 text-white/70">
+                  A clean public dashboard for fans, players and clubs to track
+                  league progress in one place.
+                </p>
+
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link
+                    href="/fixtures"
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-xs font-black text-[#087f8c]"
+                  >
+                    View fixtures
+                    <ArrowUpRight size={15} />
+                  </Link>
+
+                  <Link
+                    href="/table"
+                    className="inline-flex items-center gap-2 rounded-full bg-white/15 px-5 py-3 text-xs font-black text-white"
+                  >
+                    League table
+                    <ArrowUpRight size={15} />
+                  </Link>
+                </div>
+              </div>
+            </article>
+
+            <div className="grid gap-4">
+              <article className="flex min-h-[170px] flex-col rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#087f8c]">
+                      Next Fixture
+                    </p>
+                    <h2 className="mt-2 text-2xl font-black tracking-[-0.05em]">
+                      {nextFixture
+                        ? `${getClubName(nextFixture.homeClub)} vs ${getClubName(
+                            nextFixture.awayClub,
+                          )}`
+                        : "No fixture scheduled"}
+                    </h2>
                   </div>
-                ) : null}
+
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#ff6b8a]/15 text-[#ff6b8a]">
+                    <CalendarDays size={24} />
+                  </div>
+                </div>
+
+                <div className="mt-auto grid gap-2 text-xs font-bold text-black/50 sm:grid-cols-3">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock3 size={14} />
+                    {formatTime(nextFixture?.scheduledAt)}
+                  </span>
+                  <span>{formatDate(nextFixture?.scheduledAt)}</span>
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <MapPin size={14} className="shrink-0" />
+                    <span className="truncate">
+                      {nextFixture?.venue?.name ?? "Venue TBC"}
+                    </span>
+                  </span>
+                </div>
+              </article>
+
+              <article className="grid gap-3 rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10 sm:grid-cols-3">
+                <div>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#087f8c]/10 text-[#087f8c]">
+                    <BarChart3 size={22} />
+                  </div>
+                  <p className="mt-6 text-3xl font-black tracking-[-0.06em]">
+                    {totalMatches}
+                  </p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-black/40">
+                    Matches
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#8b5cf6]/15 text-[#8b5cf6]">
+                    <CircleDot size={22} />
+                  </div>
+                  <p className="mt-6 text-3xl font-black tracking-[-0.06em]">
+                    {results.length}
+                  </p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-black/40">
+                    Results
+                  </p>
+                </div>
+
+                <div>
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ff6b8a]/15 text-[#ff6b8a]">
+                    <Trophy size={22} />
+                  </div>
+                  <p className="mt-6 text-3xl font-black tracking-[-0.06em]">
+                    {totalGoals}
+                  </p>
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-black/40">
+                    Goals
+                  </p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+            <article className="rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-black tracking-[-0.03em]">
+                  League Table
+                </h2>
 
                 <Link
                   href="/table"
-                  className="rounded-full bg-white/80 px-4 py-3 text-xs font-black text-[#087f8c] shadow-sm transition hover:bg-white"
+                  className="text-xs font-black text-[#087f8c]"
                 >
-                  View table
+                  Full table
                 </Link>
               </div>
-            </header>
 
-            <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_0.95fr]">
-              <article className="rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-black tracking-[-0.03em]">
-                    Next Fixture
-                  </h2>
-                  <Link
-                    href="/fixtures"
-                    className="text-xs font-black text-[#087f8c]"
-                  >
-                    View fixtures
-                  </Link>
-                </div>
-
-                {nextFixture ? (
-                  <>
-                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-xs font-bold text-black/50">
-                      <span>
-                        {nextFixture.competition?.name ?? "Competition"}
+              {standings.length > 0 ? (
+                <div className="mt-4 divide-y divide-[#0f766e]/10">
+                  {standings.slice(0, 6).map((row, index) => (
+                    <div
+                      key={`${getStandingClubName(row)}-${index}`}
+                      className="grid grid-cols-[34px_1fr_52px_54px_54px] items-center py-3 text-sm"
+                    >
+                      <span className="font-black text-black/50">
+                        {index + 1}
                       </span>
-                      <span>•</span>
-                      <span>{formatMatchDate(nextFixture.scheduledAt)}</span>
+
+                      <span className="flex min-w-0 items-center gap-3 font-black">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-[#087f8c]">
+                          <Shield size={17} />
+                        </span>
+                        <span className="truncate">
+                          {getStandingClubName(row)}
+                        </span>
+                      </span>
+
+                      <span className="font-bold text-black/55">
+                        {getPlayed(row)}
+                      </span>
+
+                      <span className="font-bold text-black/55">
+                        {getGoalDifference(row)}
+                      </span>
+
+                      <span className="font-black text-[#087f8c]">
+                        {getPoints(row)}
+                      </span>
                     </div>
-
-                    <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                      <div className="text-center">
-                        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm">
-                          <Shield className="text-[#087f8c]" size={28} />
-                        </div>
-                        <p className="mt-3 text-sm font-black">
-                          {getClubName(nextFixture.homeClub)}
-                        </p>
-                      </div>
-
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#ff6b8a] text-xs font-black text-white">
-                        VS
-                      </div>
-
-                      <div className="text-center">
-                        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm">
-                          <Shield className="text-[#087f8c]" size={28} />
-                        </div>
-                        <p className="mt-3 text-sm font-black">
-                          {getClubName(nextFixture.awayClub)}
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-6 rounded-3xl border border-dashed border-[#087f8c]/25 bg-white/40 p-6 text-center">
-                    <p className="text-sm font-black">
-                      No upcoming fixture yet
-                    </p>
-                    <p className="mt-2 text-xs font-semibold text-black/50">
-                      Fixtures created in the backend will appear here.
-                    </p>
-                  </div>
-                )}
-              </article>
-
-              <article className="rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-black tracking-[-0.03em]">
-                    League Statistics
-                  </h2>
-                  <span className="text-xs font-black text-[#087f8c]">
-                    Public
-                  </span>
+                  ))}
                 </div>
-
-                <div className="mt-7 rounded-2xl border border-[#0f766e]/10 bg-white/35 p-4">
-                  <div className="h-3 overflow-hidden rounded-full bg-[#d7e7e4]">
-                    <div className="h-full w-[72%] rounded-full bg-gradient-to-r from-[#0891b2] via-[#0f766e] to-[#ff6b8a]" />
-                  </div>
-
-                  <div className="mt-5 grid grid-cols-4 text-center">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/40">
-                        Clubs
-                      </p>
-                      <p className="mt-1 text-lg font-black">{totalClubs}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/40">
-                        Played
-                      </p>
-                      <p className="mt-1 text-lg font-black">
-                        {completedMatches}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/40">
-                        Goals
-                      </p>
-                      <p className="mt-1 text-lg font-black">{totalGoals}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/40">
-                        Next
-                      </p>
-                      <p className="mt-1 text-lg font-black">
-                        {scheduledFixtures}
-                      </p>
-                    </div>
-                  </div>
+              ) : (
+                <div className="mt-4 rounded-[1.4rem] border border-dashed border-[#087f8c]/25 bg-white/45 p-6 text-center">
+                  <p className="text-sm font-black">No table yet</p>
+                  <p className="mt-2 text-xs font-semibold text-black/50">
+                    The table will appear once results are submitted.
+                  </p>
                 </div>
-              </article>
-            </div>
+              )}
+            </article>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_0.95fr]">
-              <article className="rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-black tracking-[-0.03em]">
-                    Standings
-                  </h2>
-                  <Link
-                    href="/table"
-                    className="text-xs font-black text-[#087f8c]"
-                  >
-                    View all
-                  </Link>
-                </div>
+            <article className="rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-black tracking-[-0.03em]">
+                  Latest Result
+                </h2>
 
-                <div className="mt-4 overflow-hidden">
-                  <div className="grid grid-cols-[32px_1fr_38px_38px_38px_44px_44px] border-b border-[#0f766e]/10 pb-3 text-[10px] font-black uppercase tracking-[0.14em] text-black/40">
-                    <span>#</span>
-                    <span>Team</span>
-                    <span>MP</span>
-                    <span>W</span>
-                    <span>L</span>
-                    <span>GD</span>
-                    <span>PTS</span>
-                  </div>
+                <Link
+                  href="/results"
+                  className="text-xs font-black text-[#087f8c]"
+                >
+                  View results
+                </Link>
+              </div>
 
-                  {tableQuery.isLoading ? (
-                    <div className="flex items-center justify-center gap-2 py-10 text-sm font-bold text-[#087f8c]">
-                      <Loader2 className="animate-spin" size={16} />
-                      Loading standings
-                    </div>
-                  ) : standings.length > 0 ? (
-                    <div className="divide-y divide-[#0f766e]/10">
-                      {standings.slice(0, 6).map((club, index) => (
-                        <div
-                          key={`${getStandingClubName(club)}-${index}`}
-                          className="grid grid-cols-[32px_1fr_38px_38px_38px_44px_44px] items-center py-3 text-xs sm:text-sm"
-                        >
-                          <span className="font-bold text-black/50">
-                            {index + 1}
-                          </span>
-                          <span className="flex min-w-0 items-center gap-2 font-black">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white text-[#087f8c]">
-                              <Shield size={14} />
-                            </span>
-                            <span className="truncate">
-                              {getStandingClubName(club)}
-                            </span>
-                          </span>
-                          <span className="font-bold text-black/60">
-                            {getStandingPlayed(club)}
-                          </span>
-                          <span className="font-bold text-black/60">
-                            {getStandingWins(club)}
-                          </span>
-                          <span className="font-bold text-black/60">
-                            {getStandingLosses(club)}
-                          </span>
-                          <span className="font-bold text-black/60">
-                            {getStandingGoalDifference(club)}
-                          </span>
-                          <span className="font-black">
-                            {getStandingPoints(club)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-3xl border border-dashed border-[#087f8c]/25 bg-white/40 p-6 text-center">
-                      <p className="text-sm font-black">No standings yet</p>
-                      <p className="mt-2 text-xs font-semibold text-black/50">
-                        Once league results are submitted, the table will appear
-                        here.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </article>
-
-              <div className="grid gap-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <article className="rounded-[1.5rem] border border-white/60 bg-white/60 p-4 shadow-lg shadow-[#5c7c7c]/10">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#8b5cf6]/15 text-[#8b5cf6]">
-                      <Trophy size={21} />
-                    </div>
-                    <p className="mt-5 text-[10px] font-black uppercase tracking-[0.16em] text-black/45">
-                      Top Team
-                    </p>
-                    <p className="mt-1 text-lg font-black">
-                      {topTeamPoints ? `${topTeamPoints} pts` : "TBC"}
-                    </p>
-                  </article>
-
-                  <article className="rounded-[1.5rem] border border-white/60 bg-white/60 p-4 shadow-lg shadow-[#5c7c7c]/10">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ff6b8a]/15 text-[#ff6b8a]">
-                      <BarChart3 size={21} />
-                    </div>
-                    <p className="mt-5 text-[10px] font-black uppercase tracking-[0.16em] text-black/45">
-                      Avg Goals
-                    </p>
-                    <p className="mt-1 text-lg font-black">
-                      {completedMatches > 0
-                        ? (totalGoals / completedMatches).toFixed(1)
-                        : "0.0"}
-                    </p>
-                  </article>
-                </div>
-
-                <article className="relative overflow-hidden rounded-[1.7rem] bg-gradient-to-br from-[#0891b2] to-[#0f766e] p-5 text-white shadow-xl shadow-[#0f766e]/20">
-                  <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-white/15" />
-                  <div className="absolute -bottom-16 right-8 h-36 w-36 rounded-full bg-[#ff6b8a]/30" />
-
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">
-                    Latest Result
+              {latestResult ? (
+                <div className="mt-5">
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-[#087f8c]">
+                    {latestResult.competition?.name ?? "Competition"}
                   </p>
 
-                  {latestResult ? (
-                    <>
-                      <h2 className="mt-4 max-w-xs text-3xl font-black leading-[0.95] tracking-[-0.06em]">
-                        {getClubName(latestResult.homeClub)} vs{" "}
-                        {getClubName(latestResult.awayClub)}
-                      </h2>
-
-                      <div className="mt-6 flex items-center justify-between rounded-2xl bg-white/15 p-4 backdrop-blur">
-                        <div>
-                          <p className="text-xs font-bold text-white/70">
-                            {latestResult.competition?.name ??
-                              "Completed match"}
-                          </p>
-                          <p className="mt-1 text-2xl font-black">
-                            {numberFrom(latestResult.homeScore)} -{" "}
-                            {numberFrom(latestResult.awayScore)}
-                          </p>
-                        </div>
-
-                        <Link
-                          href="/results"
-                          className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#087f8c]"
-                        >
-                          <ChevronRight size={18} />
-                        </Link>
+                  <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                    <div className="min-w-0 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-white shadow-sm">
+                        <Shield className="text-[#087f8c]" size={25} />
                       </div>
-                    </>
-                  ) : (
-                    <div className="mt-6 rounded-2xl bg-white/15 p-4 backdrop-blur">
-                      <p className="text-lg font-black">No results yet</p>
-                      <p className="mt-2 text-sm font-semibold text-white/70">
-                        Submitted results from the backend will appear here.
+                      <p className="mt-3 truncate text-sm font-black">
+                        {getClubName(latestResult.homeClub)}
                       </p>
                     </div>
-                  )}
-                </article>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <nav className="fixed inset-x-3 bottom-3 z-20 rounded-[1.5rem] border border-white/70 bg-white/75 p-2 shadow-2xl shadow-black/10 backdrop-blur-xl lg:hidden">
-        <div className="grid grid-cols-5">
-          {navItems.map((item, index) => {
-            const Icon = item.icon;
-            const active = index === 0;
+                    <div className="shrink-0 rounded-3xl bg-[#10201c] px-5 py-3 text-center text-xl font-black tracking-[-0.05em] text-white">
+                      {getScore(latestResult)}
+                    </div>
 
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={`flex flex-col items-center justify-center gap-1 rounded-2xl py-2 text-[10px] font-black ${
-                  active ? "bg-[#087f8c] text-white" : "text-[#08736f]"
-                }`}
-              >
-                <Icon size={17} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
-    </main>
+                    <div className="min-w-0 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-white shadow-sm">
+                        <Shield className="text-[#087f8c]" size={25} />
+                      </div>
+                      <p className="mt-3 truncate text-sm font-black">
+                        {getClubName(latestResult.awayClub)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex items-center gap-2 rounded-2xl bg-white/50 px-4 py-3 text-sm font-bold text-black/60">
+                    <MapPin size={16} className="shrink-0 text-[#087f8c]" />
+                    <span className="truncate">
+                      {latestResult.venue?.name ?? "Venue TBC"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-[1.4rem] border border-dashed border-[#087f8c]/25 bg-white/45 p-6 text-center">
+                  <p className="text-sm font-black">No result yet</p>
+                  <p className="mt-2 text-xs font-semibold text-black/50">
+                    Completed matches will appear here.
+                  </p>
+                </div>
+              )}
+            </article>
+          </section>
+
+          <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Link
+              href="/fixtures"
+              className="group rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10 transition hover:-translate-y-1 hover:bg-white/75"
+            >
+              <CalendarDays className="text-[#087f8c]" size={25} />
+              <p className="mt-8 text-xl font-black tracking-[-0.04em]">
+                Fixtures
+              </p>
+              <p className="mt-2 text-sm font-semibold text-black/50">
+                Upcoming matches
+              </p>
+            </Link>
+
+            <Link
+              href="/results"
+              className="group rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10 transition hover:-translate-y-1 hover:bg-white/75"
+            >
+              <CircleDot className="text-[#087f8c]" size={25} />
+              <p className="mt-8 text-xl font-black tracking-[-0.04em]">
+                Results
+              </p>
+              <p className="mt-2 text-sm font-semibold text-black/50">
+                Completed games
+              </p>
+            </Link>
+
+            <Link
+              href="/table"
+              className="group rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10 transition hover:-translate-y-1 hover:bg-white/75"
+            >
+              <ListOrdered className="text-[#087f8c]" size={25} />
+              <p className="mt-8 text-xl font-black tracking-[-0.04em]">
+                Table
+              </p>
+              <p className="mt-2 text-sm font-semibold text-black/50">
+                League standings
+              </p>
+            </Link>
+
+            <Link
+              href="/clubs"
+              className="group rounded-[1.7rem] border border-white/60 bg-white/60 p-5 shadow-lg shadow-[#5c7c7c]/10 transition hover:-translate-y-1 hover:bg-white/75"
+            >
+              <UsersRound className="text-[#087f8c]" size={25} />
+              <p className="mt-8 text-xl font-black tracking-[-0.04em]">
+                Clubs
+              </p>
+              <p className="mt-2 text-sm font-semibold text-black/50">
+                Team directory
+              </p>
+            </Link>
+          </section>
+        </>
+      )}
+    </ViewerShell>
   );
 }
